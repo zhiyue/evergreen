@@ -1,91 +1,86 @@
 # Evergreen
 
-Evergreen is a Cloudflare Worker that keeps Surge external policy subscriptions usable when upstream subscription links expire, return 401/403/502, or are temporarily unavailable.
+Evergreen 是一个运行在 Cloudflare Workers 上的 Surge 订阅缓存服务。它给 Surge 提供稳定的订阅地址，把上一次成功拉取到的机场订阅保存在 Cloudflare KV 里，避免上游订阅链接过期、临时 401/403/502 或短暂不可用时直接影响 Surge。
 
-It gives Surge a stable URL, stores the last successful subscription in Cloudflare KV, and exposes a small admin page for source management and manual refreshes.
+适合这种场景：
 
-## Why
+- 机场订阅链接带短时效 token。
+- Surge 直接拉机场链接时经常遇到 401、403、502。
+- 某些机场需要先打开网页或手动刷新订阅，Cloudflare Cron 无法替代这个动作。
+- 你希望 Surge 永远读一个稳定 URL，而不是直接依赖机场的实时可用性。
 
-Some proxy providers issue subscription URLs with short-lived tokens. Surge then pulls the upstream URL directly and can fail with 401 or 403 after the token expires. Some providers also require the user to open the provider page before the subscription URL works again, so a blind cron job is not enough.
-
-Evergreen solves the practical part:
-
-- Surge reads a stable Worker URL.
-- The Worker fetches the real provider URL.
-- Successful results are cached in KV.
-- Later upstream failures do not overwrite the last good cache.
-- If a source has never been cached and the upstream is down, the Worker returns an empty Surge policy instead of an HTTP failure.
-
-## Features
-
-- Stable public subscription URLs: `/sub/:name?token=...`
-- Admin page: `/admin`
-- Admin API for adding, updating, deleting, and refreshing sources
-- Default source list from `DEFAULT_SOURCES`
-- Dynamic source overrides stored in Cloudflare KV
-- Stale cache fallback for expired or blocked upstream links
-- Empty Surge response for cold-cache upstream failures
-- Surge-like upstream headers when fetching providers
-- Built-in conversion for common base64 URI subscriptions into Surge policy lines where safe
-- Optional Cloudflare Zero Trust Access validation for admin routes
-
-## Current Limits
-
-Evergreen does not magically refresh provider account tokens. If the provider only makes the subscription available after a browser login or manual activation, you still need to do that once. Evergreen preserves the last successful result so Surge does not break afterward.
-
-The built-in converter only emits protocols that Surge can actually use. For example, Trojan URI nodes can be converted. VLESS with XTLS Vision is not emitted because Surge does not support that protocol family.
-
-## How It Works
+## 核心思路
 
 ```text
 Surge
   -> https://your-worker/sub/source-name?token=PUBLIC_TOKEN
   -> Cloudflare Worker
-  -> Cloudflare KV cache
-  -> upstream provider subscription URL
+  -> Cloudflare KV 缓存
+  -> 真实机场订阅 URL
 ```
 
-Request behavior:
+请求逻辑：
 
-- Fresh cache exists: return cached subscription.
-- Stale cache exists: return cached subscription and refresh in the background.
-- No cache exists: try upstream immediately.
-- Upstream succeeds: cache and return the subscription.
-- Upstream fails and no cache exists: return an empty Surge policy:
+- 有新鲜缓存：直接返回缓存。
+- 有过期但仍在保留期内的缓存：返回旧缓存，并在后台尝试刷新。
+- 没有缓存：立即尝试拉上游。
+- 上游成功：写入 KV，然后返回订阅内容。
+- 上游失败且没有任何可用缓存：返回一个空 Surge 订阅，而不是 HTTP 502。
+
+空订阅内容是一行注释：
 
 ```text
-[Proxy]
+# empty
 ```
 
-That empty response is not cached. The first later success still writes the real subscription into KV.
+`policy-path` 需要的是代理定义行列表，不是完整的 `[Proxy]` 配置段；注释行不会产生任何节点，也不会写入缓存。后面只要上游恢复，第一次成功拉取仍会写入真实缓存。
 
-## Project Layout
+## 功能
+
+- 稳定订阅地址：`/sub/:name?token=...`
+- 管理页面：`/admin`
+- 管理 API：新增、更新、删除、刷新机场源
+- 默认机场配置来自 `DEFAULT_SOURCES`
+- 动态配置和默认配置都存入 Cloudflare KV
+- 上游失败时保留上一次成功缓存
+- 首次无缓存且上游失败时返回空订阅，避免 Surge 拉取接口直接失败
+- 拉上游时默认模仿 Surge 请求头
+- 内置常见 base64 URI 订阅到 Surge 外部策略格式的转换
+- 管理页可选接入 Cloudflare Zero Trust Access
+
+## 当前限制
+
+Evergreen 不能通用地“自动刷新机场账号 token”。多数机场只给一个订阅 URL，没有公开刷新 token 的接口；如果机场要求先在网页里打开或激活订阅，Worker 也没有你的浏览器登录态。
+
+这个项目解决的是更实际的问题：只要有一次成功拉取，后续 Surge 就可以继续使用 Cloudflare KV 里的最近一次成功缓存。
+
+内置转换也只输出 Surge 能明确支持的协议。例如 Trojan URI 可以转换；VLESS + XTLS Vision 不会输出，因为 Surge 不支持这一类协议。
+
+## 目录结构
 
 ```text
-src/index.ts                  Worker implementation
-test/worker.test.ts           Node tests
-scripts/seed-sources.mjs      Import source config through the admin API
-examples/sources.example.json Example source config
-examples/surge-policy-groups.conf Surge policy-path examples
-wrangler.toml                 Cloudflare Worker configuration template
+src/index.ts                  Worker 主实现
+test/worker.test.ts           测试
+scripts/seed-sources.mjs      通过管理 API 导入机场源
+examples/sources.example.json 示例机场源配置
+examples/surge-policy-groups.conf Surge policy-path 示例
+wrangler.toml                 Cloudflare Worker 配置模板
 ```
 
-## Setup
-
-Install dependencies:
+## 安装
 
 ```sh
 npm install
 ```
 
-Create a KV namespace:
+## 创建 KV
 
 ```sh
 npx wrangler kv namespace create SUB_CACHE
 npx wrangler kv namespace create SUB_CACHE_PREVIEW
 ```
 
-Put the returned IDs into `wrangler.toml`:
+把返回的 ID 填进 `wrangler.toml`：
 
 ```toml
 [[kv_namespaces]]
@@ -94,7 +89,7 @@ id = "YOUR_KV_NAMESPACE_ID"
 preview_id = "YOUR_PREVIEW_KV_NAMESPACE_ID"
 ```
 
-Set secrets:
+## 配置密钥
 
 ```sh
 npx wrangler secret put PUBLIC_TOKEN
@@ -102,7 +97,7 @@ npx wrangler secret put ADMIN_TOKEN
 npx wrangler secret put DEFAULT_SOURCES
 ```
 
-`DEFAULT_SOURCES` should be JSON:
+`DEFAULT_SOURCES` 是 JSON：
 
 ```json
 {
@@ -115,38 +110,38 @@ npx wrangler secret put DEFAULT_SOURCES
 }
 ```
 
-Do not commit real provider URLs or tokens. Use `.dev.vars` only for local development.
+真实机场订阅 URL 往往包含账号 token，不要提交到 git。生产环境建议放进 Worker secret，本地开发放进 `.dev.vars`。
 
-## Local Development
+## 本地开发
 
-Create `.dev.vars` from the example:
+复制本地环境变量示例：
 
 ```sh
 cp .dev.vars.example .dev.vars
 ```
 
-Run locally:
+启动本地 Worker：
 
 ```sh
 npm run dev
 ```
 
-Open the admin page:
+打开管理页：
 
 ```text
 http://127.0.0.1:8787/admin?admin_token=YOUR_ADMIN_TOKEN
 ```
 
-Run checks:
+运行检查：
 
 ```sh
 npm run typecheck
 npm test
 ```
 
-## Deploy
+## 部署
 
-Optional custom domain:
+如果要绑定自定义域名，可以在 `wrangler.toml` 里配置：
 
 ```toml
 [[routes]]
@@ -154,53 +149,57 @@ pattern = "subscriptions.example.com"
 custom_domain = true
 ```
 
-Deploy:
+部署：
 
 ```sh
 npm run deploy
 ```
 
-Check the Worker:
+检查服务：
 
 ```sh
 curl "https://subscriptions.example.com/health"
 ```
 
-## Surge Configuration
+## Surge 配置
 
-Replace provider `policy-path` values with Worker URLs:
+把原来的机场 `policy-path` 改成 Worker 地址：
 
 ```ini
 example = select, timeout=30s, policy-path=https://subscriptions.example.com/sub/example?token=PUBLIC_TOKEN, update-interval=3600, external-policy-name-prefix=[example]
 ```
 
-See `examples/surge-policy-groups.conf` for a larger template.
+更完整的模板在 `examples/surge-policy-groups.conf`。
 
-`update-interval=3600` is usually enough. Evergreen already keeps the cache; Surge does not need to hammer the upstream provider.
+建议把 Surge 的 `update-interval` 设成 `3600` 左右。Evergreen 已经会保留缓存，Surge 没必要频繁打到 Worker，Worker 也没必要频繁打到上游机场。
 
-## Admin Authentication
+## 管理认证
 
-Local and simple deployments can use `ADMIN_TOKEN`.
+简单部署可以直接使用 `ADMIN_TOKEN`：
 
-For production, you can protect `/admin*` with Cloudflare Zero Trust Access:
+```text
+https://subscriptions.example.com/admin?admin_token=ADMIN_TOKEN
+```
+
+生产环境可以用 Cloudflare Zero Trust Access 保护 `/admin*`：
 
 ```sh
 npx wrangler secret put CF_ACCESS_AUD
 npx wrangler secret put CF_ACCESS_TEAM_DOMAIN
 ```
 
-When both values are configured, admin requests must carry a valid Cloudflare Access login token. The public `/sub/:name` endpoint still uses `PUBLIC_TOKEN`, because Surge cannot complete an interactive login.
+配置了这两个值后，管理页面和管理 API 会校验 Cloudflare Access 登录。公开订阅接口 `/sub/:name` 仍然使用 `PUBLIC_TOKEN`，因为 Surge 不能完成交互式登录。
 
-## Admin API
+## 管理 API
 
-List sources:
+查看机场源：
 
 ```sh
 curl -H "Authorization: Bearer ADMIN_TOKEN" \
   "https://subscriptions.example.com/admin/sources"
 ```
 
-Replace all dynamic sources:
+批量导入动态源：
 
 ```sh
 WORKER_URL=https://subscriptions.example.com \
@@ -208,7 +207,7 @@ ADMIN_TOKEN=ADMIN_TOKEN \
 node scripts/seed-sources.mjs examples/sources.example.json
 ```
 
-Add or update one source:
+新增或更新单个源：
 
 ```sh
 curl -X PUT "https://subscriptions.example.com/admin/source/example" \
@@ -217,32 +216,32 @@ curl -X PUT "https://subscriptions.example.com/admin/source/example" \
   --data '{"url":"https://provider.example/sub?token=REDACTED","enabled":true}'
 ```
 
-Refresh one source:
+刷新单个源：
 
 ```sh
 curl -X POST -H "Authorization: Bearer ADMIN_TOKEN" \
   "https://subscriptions.example.com/admin/refresh/example"
 ```
 
-Refresh all sources:
+刷新全部源：
 
 ```sh
 curl -X POST -H "Authorization: Bearer ADMIN_TOKEN" \
   "https://subscriptions.example.com/admin/refresh"
 ```
 
-## Response Headers
+## 订阅响应头
 
-Subscription responses include cache state:
+订阅接口会返回缓存状态：
 
-- `x-sub-cache: HIT` means fresh cache was returned.
-- `x-sub-cache: STALE` means stale cache was returned while refresh happens in the background.
-- `x-sub-cache: REFRESHED` means upstream was fetched and cached during the request.
-- `x-sub-cache: EMPTY` means upstream failed and no usable cache exists yet.
+- `x-sub-cache: HIT`：返回新鲜缓存。
+- `x-sub-cache: STALE`：返回旧缓存，同时后台刷新。
+- `x-sub-cache: REFRESHED`：本次请求拉上游成功，并已写入缓存。
+- `x-sub-cache: EMPTY`：上游失败且当前没有可用缓存，所以返回空订阅。
 
-## Security Notes
+## 安全注意事项
 
-- Keep `PUBLIC_TOKEN`, `ADMIN_TOKEN`, and provider subscription URLs out of git.
-- `.dev.vars` is ignored on purpose.
-- `DEFAULT_SOURCES` is a secret because provider URLs often contain real account tokens.
-- KV namespace IDs are not credentials, but the public template keeps placeholders so the repo can be reused safely.
+- 不要提交 `PUBLIC_TOKEN`、`ADMIN_TOKEN` 和真实机场订阅 URL。
+- `.dev.vars` 已加入 `.gitignore`，只用于本地开发。
+- `DEFAULT_SOURCES` 建议始终作为 Worker secret 管理。
+- KV namespace ID 不等于密钥，但公开模板里仍使用占位值，方便复用。

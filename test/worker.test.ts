@@ -137,7 +137,7 @@ test("returns an empty subscription when upstream fails before first cache", asy
     const response = await handleRequest(new Request("https://cache.test/sub/cold-airport?token=public-token"), env);
     assert.equal(response.status, 200);
     assert.equal(response.headers.get("x-sub-cache"), "EMPTY");
-    assert.equal(await response.text(), "[Proxy]\n");
+    assert.equal(await response.text(), "# empty\n");
     assert.equal(await env.SUB_CACHE.get("cache:cold-airport"), null);
   } finally {
     globalThis.fetch = originalFetch;
