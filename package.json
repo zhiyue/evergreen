@@ -1,0 +1,21 @@
+{
+  "name": "evergreen",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test --import tsx",
+    "typecheck": "tsc --noEmit",
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev"
+  },
+  "dependencies": {
+    "jose": "^6.1.2"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260510.0",
+    "@types/node": "^25.8.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "wrangler": "^4.92.0"
+  }
+}

@@ -1,0 +1,17 @@
+name = "surge-subscription-cache"
+main = "src/index.ts"
+compatibility_date = "2026-05-18"
+workers_dev = true
+
+[[routes]]
+pattern = "subscriptions.example.com"
+custom_domain = true
+
+[[kv_namespaces]]
+binding = "SUB_CACHE"
+id = "YOUR_KV_NAMESPACE_ID"
+preview_id = "YOUR_PREVIEW_KV_NAMESPACE_ID"
+
+[vars]
+CACHE_TTL_SECONDS = "21600"
+STALE_TTL_SECONDS = "1209600"

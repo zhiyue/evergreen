@@ -1,0 +1,24 @@
+{
+  "sources": [
+    {
+      "name": "kycloud",
+      "url": "https://acsub.kyapi.xyz/?sid=REDACTED&uid=REDACTED&token=REDACTED&app=surge"
+    },
+    {
+      "name": "ssrdog",
+      "url": "https://REDACTED.sbs/s?q=REDACTED&t=REDACTED.jpg"
+    },
+    {
+      "name": "yiyuan",
+      "url": "https://sub1.smallstrawberry.com/api/v1/client/subscribe?token=REDACTED"
+    },
+    {
+      "name": "jingling",
+      "url": "https://subscription.riolu.link/RioLU/system/api/v1/client/subscribe?token=REDACTED"
+    },
+    {
+      "name": "tag",
+      "url": "https://rama991.siamparagon.org/api/v1/trails/bolster?token=REDACTED"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+node_modules/
+.wrangler/
+.playwright-cli/
+.dev.vars
+.env
+.env.*
+.DS_Store
+coverage/
+dist/
+*.log

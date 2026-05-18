@@ -1,0 +1,3 @@
+ADMIN_TOKEN=replace-with-a-long-random-admin-token
+PUBLIC_TOKEN=replace-with-a-long-random-surge-token
+DEFAULT_SOURCES={"sources":[{"name":"ssrdog","url":"https://example.com/sub?token=REDACTED"}]}
