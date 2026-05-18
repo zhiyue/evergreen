@@ -27,13 +27,13 @@ Surge
 - 上游成功：写入 KV，然后返回订阅内容。
 - 上游失败且没有任何可用缓存：返回一个空 Surge 订阅，而不是 HTTP 502。
 
-空订阅内容是一行注释：
+空订阅内容是一条合法的占位 policy：
 
 ```text
-# empty
+AnyPath_Evergreen_Empty = reject
 ```
 
-`policy-path` 需要的是代理定义行列表，不是完整的 `[Proxy]` 配置段；注释行不会产生任何节点，也不会写入缓存。后面只要上游恢复，第一次成功拉取仍会写入真实缓存。
+`policy-path` 需要的是代理定义行列表，不是完整的 `[Proxy]` 配置段。占位 policy 的名字包含 `AnyPath`，如果你的 Surge 组里使用了类似 `policy-regex-filter=^(?!.*(AnyPath|ASYNCHRONOUS)).*$` 的过滤规则，它会被自动过滤掉；即使没有过滤，它也只是一个 `reject` 占位项。这个占位响应不会写入缓存，后面只要上游恢复，第一次成功拉取仍会写入真实缓存。
 
 ## 功能
 

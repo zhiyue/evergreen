@@ -51,7 +51,7 @@ const REFRESH_PREFIX = "refresh:";
 const DEFAULT_CACHE_TTL_SECONDS = 6 * 60 * 60;
 const DEFAULT_STALE_TTL_SECONDS = 14 * 24 * 60 * 60;
 const MAX_SUBSCRIPTION_BYTES = 10 * 1024 * 1024;
-const EMPTY_SUBSCRIPTION_BODY = "# empty\n";
+const EMPTY_SUBSCRIPTION_BODY = "AnyPath_Evergreen_Empty = reject\n";
 const SURGE_UPSTREAM_HEADERS = {
   "user-agent": "Surge/5.0",
   accept: "*/*",
