@@ -137,7 +137,10 @@ test("returns an empty subscription when upstream fails before first cache", asy
     const response = await handleRequest(new Request("https://cache.test/sub/cold-airport?token=public-token"), env);
     assert.equal(response.status, 200);
     assert.equal(response.headers.get("x-sub-cache"), "EMPTY");
-    assert.equal(await response.text(), "AnyPath_Evergreen_Empty = reject\n");
+    assert.equal(
+      await response.text(),
+      "Evergreen Empty = reject\nEvergreen Empty 1x = reject\nEvergreen Empty 家宽 = reject\n",
+    );
     assert.equal(await env.SUB_CACHE.get("cache:cold-airport"), null);
   } finally {
     globalThis.fetch = originalFetch;
@@ -148,6 +151,33 @@ test("rejects subscription requests without public token", async () => {
   const env = makeEnv();
   const response = await handleRequest(new Request("https://cache.test/sub/airport-a"), env);
   assert.equal(response.status, 401);
+});
+
+test("subscription HEAD requests do not fetch upstream", async () => {
+  const env = makeEnv();
+  await handleRequest(
+    adminRequest("/admin/sources", {
+      sources: [{ name: "head-airport", url: "https://upstream.test/head-airport" }],
+    }),
+    env,
+  );
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    throw new Error("HEAD should not fetch upstream");
+  };
+
+  try {
+    const response = await handleRequest(
+      new Request("https://cache.test/sub/head-airport?token=public-token", { method: "HEAD" }),
+      env,
+    );
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("x-sub-cache"), "EMPTY");
+    assert.equal(await response.text(), "");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("reads default sources before any dynamic configuration is saved", async () => {

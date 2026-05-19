@@ -51,7 +51,12 @@ const REFRESH_PREFIX = "refresh:";
 const DEFAULT_CACHE_TTL_SECONDS = 6 * 60 * 60;
 const DEFAULT_STALE_TTL_SECONDS = 14 * 24 * 60 * 60;
 const MAX_SUBSCRIPTION_BYTES = 10 * 1024 * 1024;
-const EMPTY_SUBSCRIPTION_BODY = "AnyPath_Evergreen_Empty = reject\n";
+const EMPTY_SUBSCRIPTION_BODY = [
+  "Evergreen Empty = reject",
+  "Evergreen Empty 1x = reject",
+  "Evergreen Empty 家宽 = reject",
+  "",
+].join("\n");
 const SURGE_UPSTREAM_HEADERS = {
   "user-agent": "Surge/5.0",
   accept: "*/*",
@@ -159,10 +164,11 @@ export async function handleRequest(
   }
 
   const subMatch = pathname.match(/^\/sub\/(.+)$/);
-  if (subMatch && request.method === "GET") {
+  if (subMatch && ["GET", "HEAD"].includes(request.method)) {
     const denied = requirePublicToken(request, env);
     if (denied) return denied;
     const name = decodeURIComponent(subMatch[1]);
+    if (request.method === "HEAD") return headSubscription(env, name);
     return serveSubscription(env, ctx, name);
   }
 
@@ -205,6 +211,25 @@ async function serveSubscription(env: Env, ctx: ExecutionLike, name: string): Pr
     if (hasUsableCache && cached.value) return subscriptionResponse(cached.value, cached.metadata, "STALE");
     return emptySubscriptionResponse(error instanceof Error ? error.message : "Refresh failed");
   }
+}
+
+async function headSubscription(env: Env, name: string): Promise<Response> {
+  validateName(name);
+  const source = await getSource(env, name);
+  if (!source) return new Response(null, { status: 404 });
+  if (source.enabled === false) return new Response(null, { status: 409 });
+
+  const cached = await getCachedSubscription(env, name);
+  const hasUsableCache = Boolean(cached.value && countSubscriptionItems(cached.value) > 0);
+  const cacheStatus = hasUsableCache ? "AVAILABLE" : "EMPTY";
+  return new Response(null, {
+    headers: {
+      "content-type": subscriptionContentType(cached.metadata?.contentType || null),
+      "cache-control": "no-store",
+      "x-sub-cache": cacheStatus,
+      "x-sub-updated-at": cached.metadata?.updatedAt || "",
+    },
+  });
 }
 
 export async function refreshAllSources(env: Env, names?: unknown): Promise<RefreshResult[]> {
