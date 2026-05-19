@@ -252,6 +252,8 @@ npm run setup-and-enable-access
 
 `ADMIN_TOKEN` 只用于部署后验证旧 token 已被拒绝；不传也会启用 Access，但不会做这一步验证。
 
+这个命令可以重复执行：如果同名 Access policy 或同域名 Access app 已经存在，脚本会复用现有对象，避免重复创建。
+
 先检查将要创建的内容：
 
 ```sh

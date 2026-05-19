@@ -43,8 +43,10 @@ if (dryRun) {
   process.exit(0);
 }
 
-const policy = await cloudflare("POST", `/accounts/${accountId}/access/policies`, policyPayload);
-const app = await cloudflare("POST", `/accounts/${accountId}/access/apps`, appPayload(policy.id));
+const existingPolicy = await findAccessPolicy(accountId, policyPayload.name);
+const policy = existingPolicy || await cloudflare("POST", `/accounts/${accountId}/access/policies`, policyPayload);
+const existingApp = await findAccessApp(accountId, appName, appDomain);
+const app = existingApp || await cloudflare("POST", `/accounts/${accountId}/access/apps`, appPayload(policy.id));
 const resolvedTeamDomain = teamDomain || await detectTeamDomain(accountId);
 
 console.log(
@@ -52,6 +54,7 @@ console.log(
     {
       policy: { id: policy.id, name: policy.name },
       application: { id: app.id, name: app.name, domain: app.domain, aud: app.aud },
+      reused: { policy: Boolean(existingPolicy), application: Boolean(existingApp) },
       workerSecrets: {
         CF_ACCESS_AUD: app.aud,
         CF_ACCESS_TEAM_DOMAIN: resolvedTeamDomain || "<set-your-team-domain>",
@@ -117,6 +120,24 @@ async function detectTeamDomain(accountId) {
 
 function normalizeHttps(value) {
   return /^https?:\/\//u.test(value) ? value : `https://${value}`;
+}
+
+async function findAccessPolicy(accountId, name) {
+  try {
+    const policies = await cloudflare("GET", `/accounts/${accountId}/access/policies?per_page=100`);
+    return Array.isArray(policies) ? policies.find((policy) => policy.name === name) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function findAccessApp(accountId, name, domain) {
+  try {
+    const apps = await cloudflare("GET", `/accounts/${accountId}/access/apps?per_page=100`);
+    return Array.isArray(apps) ? apps.find((app) => app.name === name || app.domain === domain) : null;
+  } catch {
+    return null;
+  }
 }
 
 function enableWorkerAccess(aud, teamDomain) {
