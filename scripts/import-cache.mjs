@@ -20,7 +20,7 @@ if (!name || !sourceUrl || !workerUrl || (!adminToken && (!accessClientId || !ac
 
 const upstream = await fetch(sourceUrl, {
   headers: {
-    "user-agent": "Surge/5.0",
+    "user-agent": "Surge iOS/6.0.0",
     accept: "*/*",
     "accept-language": "zh-Hans-CN;q=1, en-CN;q=0.9",
     "cache-control": "no-cache",
