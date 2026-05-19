@@ -139,7 +139,7 @@ test("returns an empty subscription when upstream fails before first cache", asy
     assert.equal(response.headers.get("x-sub-cache"), "EMPTY");
     assert.equal(
       await response.text(),
-      "Evergreen Empty = reject\nEvergreen Empty 1x = reject\nEvergreen Empty 家宽 = reject\n",
+      "Evergreen Empty = http, 127.0.0.1, 9\nEvergreen Empty 1x = http, 127.0.0.1, 9\nEvergreen Empty 家宽 = http, 127.0.0.1, 9\n",
     );
     assert.equal(await env.SUB_CACHE.get("cache:cold-airport"), null);
   } finally {
