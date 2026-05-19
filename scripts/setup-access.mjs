@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 
 const dryRun = process.argv.includes("--dry-run");
 const enable = process.argv.includes("--enable");
+const checkToken = process.argv.includes("--check-token");
 const apiToken = process.env.CLOUDFLARE_API_TOKEN || readSecret(process.env.CLOUDFLARE_API_TOKEN_FILE || "/tmp/evergreen-cloudflare-api-token");
 const accountId = process.env.CLOUDFLARE_ACCOUNT_ID || detectAccountId();
 const appName = process.env.ACCESS_APP_NAME || "Evergreen admin";
@@ -14,6 +15,11 @@ const allowedEmailDomain = process.env.ACCESS_ALLOWED_EMAIL_DOMAIN;
 if (!dryRun && (!apiToken || !accountId)) {
   console.error("Put your Cloudflare API token in /tmp/evergreen-cloudflare-api-token, or set CLOUDFLARE_API_TOKEN. Set CLOUDFLARE_ACCOUNT_ID if wrangler has multiple accounts.");
   process.exit(1);
+}
+
+if (checkToken) {
+  await checkAccessToken(accountId);
+  process.exit(0);
 }
 
 if (!allowedEmail && !allowedEmailDomain) {
@@ -164,4 +170,24 @@ function enableWorkerAccess(aud, teamDomain) {
     stdio: "inherit",
   });
   if (result.status !== 0) process.exit(result.status || 1);
+}
+
+async function checkAccessToken(accountId) {
+  await cloudflare("GET", "/user/tokens/verify");
+  const organization = await cloudflare("GET", `/accounts/${accountId}/access/organizations`);
+  await cloudflare("GET", `/accounts/${accountId}/access/policies?per_page=1`);
+  await cloudflare("GET", `/accounts/${accountId}/access/apps?per_page=1`);
+
+  console.log(
+    JSON.stringify(
+      {
+        ok: true,
+        accountId,
+        teamDomain: organization?.auth_domain ? normalizeHttps(organization.auth_domain) : null,
+        checked: ["token", "zeroTrustOrganization", "accessPolicies", "accessApps"],
+      },
+      null,
+      2,
+    ),
+  );
 }

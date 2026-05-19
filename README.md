@@ -230,6 +230,12 @@ printf '%s' '你的_TOKEN' > /tmp/evergreen-cloudflare-api-token
 chmod 600 /tmp/evergreen-cloudflare-api-token
 ```
 
+先做只读预检：
+
+```sh
+npm run check-access-token
+```
+
 然后运行：
 
 ```sh

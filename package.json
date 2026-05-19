@@ -11,6 +11,7 @@
     "import-cache": "node scripts/import-cache.mjs",
     "enable-access": "node scripts/enable-access.mjs",
     "setup-access": "node scripts/setup-access.mjs",
+    "check-access-token": "node scripts/setup-access.mjs --check-token",
     "setup-and-enable-access": "node scripts/setup-access.mjs --enable",
     "deploy": "wrangler deploy",
     "deploy:production": "wrangler deploy --config wrangler.production.toml",
