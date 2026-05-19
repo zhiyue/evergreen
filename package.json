@@ -9,6 +9,7 @@
     "ci:security": "npm audit --omit=dev --audit-level=moderate",
     "ci:dry-run": "wrangler deploy --dry-run",
     "import-cache": "node scripts/import-cache.mjs",
+    "enable-access": "node scripts/enable-access.mjs",
     "setup-access": "node scripts/setup-access.mjs",
     "deploy": "wrangler deploy",
     "dev": "wrangler dev"
