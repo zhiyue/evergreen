@@ -252,7 +252,7 @@ npm run setup-and-enable-access
 
 `ADMIN_TOKEN` 只用于部署后验证旧 token 已被拒绝；不传也会启用 Access，但不会做这一步验证。
 
-这个命令可以重复执行：如果同名 Access policy 或同域名 Access app 已经存在，脚本会复用现有对象，避免重复创建。
+这个命令可以重复执行：如果同名 Access policy 或同域名 Access app 已经存在，脚本会复用现有对象，避免重复创建。Access app 只按域名复用，避免同名但不同地址的应用被误用。
 
 复用已有 Access app 时，脚本会确认能拿到 Application Audience (AUD)。如果 Cloudflare API 没返回 AUD，脚本会停下来，避免写入错误的 Worker secret。
 

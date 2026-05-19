@@ -136,10 +136,10 @@ async function findAccessPolicy(accountId, name) {
   }
 }
 
-async function findAccessApp(accountId, name, domain) {
+async function findAccessApp(accountId, _name, domain) {
   try {
     const apps = await cloudflare("GET", `/accounts/${accountId}/access/apps?per_page=100`);
-    const app = Array.isArray(apps) ? apps.find((candidate) => candidate.name === name || candidate.domain === domain) : null;
+    const app = Array.isArray(apps) ? apps.find((candidate) => candidate.domain === domain) : null;
     return app?.aud ? app : app ? await getAccessApp(accountId, app.id) : null;
   } catch {
     return null;
