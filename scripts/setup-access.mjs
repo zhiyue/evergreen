@@ -44,6 +44,7 @@ if (dryRun) {
 
 const policy = await cloudflare("POST", `/accounts/${accountId}/access/policies`, policyPayload);
 const app = await cloudflare("POST", `/accounts/${accountId}/access/apps`, appPayload(policy.id));
+const resolvedTeamDomain = teamDomain || await detectTeamDomain(accountId);
 
 console.log(
   JSON.stringify(
@@ -52,7 +53,7 @@ console.log(
       application: { id: app.id, name: app.name, domain: app.domain, aud: app.aud },
       workerSecrets: {
         CF_ACCESS_AUD: app.aud,
-        CF_ACCESS_TEAM_DOMAIN: teamDomain || "<set-your-team-domain>",
+        CF_ACCESS_TEAM_DOMAIN: resolvedTeamDomain || "<set-your-team-domain>",
       },
     },
     null,
@@ -60,7 +61,7 @@ console.log(
   ),
 );
 
-if (!teamDomain) {
+if (!resolvedTeamDomain) {
   console.error("Access app created. Set CF_ACCESS_TEAM_DOMAIN to your Cloudflare Access team domain before enabling Worker verification.");
 }
 
@@ -96,4 +97,18 @@ function detectAccountId() {
   } catch {
     return "";
   }
+}
+
+async function detectTeamDomain(accountId) {
+  try {
+    const organization = await cloudflare("GET", `/accounts/${accountId}/access/organizations`);
+    const authDomain = organization?.auth_domain || organization?.authDomain;
+    return authDomain ? normalizeHttps(authDomain) : "";
+  } catch {
+    return "";
+  }
+}
+
+function normalizeHttps(value) {
+  return /^https?:\/\//u.test(value) ? value : `https://${value}`;
 }

@@ -216,7 +216,12 @@ CF_ACCESS_CLIENT_ID=xxxxx.access
 CF_ACCESS_CLIENT_SECRET=xxxxx
 ```
 
-如果你有带 Zero Trust Access 写权限的 Cloudflare API token，也可以用脚本创建 Access policy/application：
+如果你有带 Zero Trust Access 权限的 Cloudflare API token，也可以用脚本创建 Access policy/application。推荐给这个 token 两个 account 权限：
+
+- `Access: Apps and Policies` - `Edit`
+- `Access: Organizations, Identity Providers, and Groups` - `Read`
+
+第二个权限用于自动读取 Zero Trust team domain；如果不加，也可以手动传 `CF_ACCESS_TEAM_DOMAIN=...`。
 
 把 token 放到本机临时文件：
 
