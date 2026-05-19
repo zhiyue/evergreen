@@ -5,6 +5,9 @@
   "scripts": {
     "test": "node --test --import tsx",
     "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm test",
+    "ci:security": "npm audit --omit=dev --audit-level=moderate",
+    "ci:dry-run": "wrangler deploy --dry-run",
     "deploy": "wrangler deploy",
     "dev": "wrangler dev"
   },
