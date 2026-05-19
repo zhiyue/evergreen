@@ -284,11 +284,63 @@ test("converts base64 URI subscriptions into Surge proxy lines", async () => {
     const cached = await env.SUB_CACHE.get("cache:direct-airport");
     assert.equal(
       cached,
-      "[Proxy]\nUS 01 = trojan, example.com, 443, password=secret, sni=edge.example.com, skip-cert-verify=true\n",
+      "US 01 = trojan, example.com, 443, password=secret, sni=edge.example.com, skip-cert-verify=true\n",
     );
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("deleting a source clears cached content and refresh state", async () => {
+  const env = makeEnv();
+  await handleRequest(
+    adminRequest("/admin/sources", {
+      sources: [{ name: "delete-airport", url: "https://upstream.test/delete-airport" }],
+    }),
+    env,
+  );
+
+  const kv = env.SUB_CACHE as unknown as MemoryKV;
+  await kv.put("cache:delete-airport", "delete-proxy = direct\n", { metadata: { proxyCount: 1 } });
+  await kv.put("refresh:delete-airport", JSON.stringify({ name: "delete-airport", ok: true }));
+
+  const response = await handleRequest(
+    new Request("https://cache.test/admin/source/delete-airport", {
+      method: "DELETE",
+      headers: { authorization: "Bearer admin-token" },
+    }),
+    env,
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(await env.SUB_CACHE.get("source:delete-airport"), null);
+  assert.equal(await env.SUB_CACHE.get("cache:delete-airport"), null);
+  assert.equal(await env.SUB_CACHE.get("refresh:delete-airport"), null);
+});
+
+test("replacing sources removes old dynamic source artifacts", async () => {
+  const env = makeEnv();
+  await handleRequest(
+    adminRequest("/admin/sources", {
+      sources: [{ name: "old-airport", url: "https://upstream.test/old-airport" }],
+    }),
+    env,
+  );
+  const kv = env.SUB_CACHE as unknown as MemoryKV;
+  await kv.put("cache:old-airport", "old-proxy = direct\n", { metadata: { proxyCount: 1 } });
+  await kv.put("refresh:old-airport", JSON.stringify({ name: "old-airport", ok: true }));
+
+  await handleRequest(
+    adminRequest("/admin/sources", {
+      sources: [{ name: "new-airport", url: "https://upstream.test/new-airport" }],
+    }),
+    env,
+  );
+
+  assert.equal(await env.SUB_CACHE.get("source:old-airport"), null);
+  assert.equal(await env.SUB_CACHE.get("cache:old-airport"), null);
+  assert.equal(await env.SUB_CACHE.get("refresh:old-airport"), null);
+  assert.ok(await env.SUB_CACHE.get("source:new-airport"));
 });
 
 test("requires Cloudflare Access for admin routes when Access is configured", async () => {

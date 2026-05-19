@@ -362,7 +362,11 @@ async function replaceSources(env: Env, rawSources: unknown[]): Promise<Record<s
   const names = sources.map((source) => source.name);
   if (new Set(names).size !== names.length) throw new Error("Source names must be unique");
 
+  const previousNames = new Set((await readStoredSourceNames(env)) ?? []);
+  for (const name of names) previousNames.delete(name);
+
   await Promise.all(sources.map((source) => env.SUB_CACHE.put(sourceKey(source.name), JSON.stringify(source))));
+  await Promise.all([...previousNames].flatMap((name) => deleteSourceArtifacts(env, name)));
   await env.SUB_CACHE.put(SOURCE_INDEX_KEY, JSON.stringify(names));
   return sources.map(summarizeSource);
 }
@@ -388,10 +392,17 @@ async function deleteSource(env: Env, name: string): Promise<boolean> {
   validateName(name);
   const names = new Set((await readStoredSourceNames(env)) ?? []);
   const deleted = names.delete(name);
-  await env.SUB_CACHE.delete(sourceKey(name));
-  await env.SUB_CACHE.delete(cacheKey(name));
+  await Promise.all(deleteSourceArtifacts(env, name));
   await env.SUB_CACHE.put(SOURCE_INDEX_KEY, JSON.stringify([...names]));
   return deleted;
+}
+
+function deleteSourceArtifacts(env: Env, name: string): Promise<void>[] {
+  return [
+    env.SUB_CACHE.delete(sourceKey(name)),
+    env.SUB_CACHE.delete(cacheKey(name)),
+    env.SUB_CACHE.delete(refreshKey(name)),
+  ];
 }
 
 async function listSources(env: Env): Promise<SourceConfig[]> {
@@ -527,7 +538,7 @@ function normalizeSubscriptionBody(body: string): string {
     .map(convertUriToSurgeProxyLine)
     .filter((line): line is string => Boolean(line));
 
-  return converted.length > 0 ? `[Proxy]\n${converted.join("\n")}\n` : "";
+  return converted.length > 0 ? `${converted.join("\n")}\n` : "";
 }
 
 function decodeBase64Subscription(body: string): string | null {
@@ -658,13 +669,17 @@ function emptySubscriptionResponse(reason: string): Response {
       "content-type": "text/plain; charset=utf-8",
       "cache-control": "no-store",
       "x-sub-cache": "EMPTY",
-      "x-sub-empty-reason": reason,
+      "x-sub-empty-reason": safeHeaderValue(reason),
     },
   });
 }
 
 function subscriptionContentType(contentType: string | null): string {
   return contentType && !/^text\/html\b/iu.test(contentType) ? contentType : "text/plain; charset=utf-8";
+}
+
+function safeHeaderValue(value: string): string {
+  return value.replace(/[^\x20-\x7e]/gu, "?").replace(/[\r\n]/gu, " ").slice(0, 200);
 }
 
 function adminPage(request: Request, sources: Record<string, unknown>[]): Response {
