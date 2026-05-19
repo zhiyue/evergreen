@@ -1,4 +1,5 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
+import { ADMIN_CSS, ADMIN_JS } from "./admin-assets";
 
 type SourceConfig = {
   name: string;
@@ -791,6 +792,51 @@ function safeHeaderValue(value: string): string {
 }
 
 function adminPage(request: Request, sources: Record<string, unknown>[], env: Env): Response {
+  const url = new URL(request.url);
+  const token = url.searchParams.get("admin_token") || "";
+  const hasAccess = Boolean(env.CF_ACCESS_AUD && env.CF_ACCESS_TEAM_DOMAIN);
+  const boot = {
+    token: hasAccess ? "" : token,
+    authMode: hasAccess ? "Cloudflare Access" : "admin token",
+    publicToken: env.PUBLIC_TOKEN || "",
+    timezone: "Asia/Shanghai",
+    generatedAt: new Date().toISOString(),
+    sources,
+  };
+  const headers = new Headers({ "content-type": "text/html; charset=utf-8" });
+  if (token && !hasAccess) {
+    headers.append("set-cookie", adminCookie(token, url.protocol === "https:"));
+  }
+
+  return new Response(
+    `<!doctype html>
+<html lang="zh-Hans">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Evergreen Admin</title>
+  <style>${ADMIN_CSS}</style>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    window.__EVERGREEN_ADMIN__ = ${jsonForHtml(boot)};
+    if (${JSON.stringify(Boolean(token))} && location.search.includes("admin_token=")) {
+      history.replaceState(null, "", location.pathname);
+    }
+  </script>
+  <script type="module">${ADMIN_JS}</script>
+</body>
+</html>`,
+    { headers },
+  );
+}
+
+function jsonForHtml(value: unknown): string {
+  return JSON.stringify(value).replace(/</gu, "\\u003c");
+}
+
+function legacyAdminPage(request: Request, sources: Record<string, unknown>[], env: Env): Response {
   const url = new URL(request.url);
   const token = url.searchParams.get("admin_token") || "";
   const authMode = env.CF_ACCESS_AUD && env.CF_ACCESS_TEAM_DOMAIN

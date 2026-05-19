@@ -3,28 +3,43 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build:admin": "vite build --config admin/vite.config.ts && node scripts/build-admin-assets.mjs",
     "test": "node --test --import tsx",
-    "typecheck": "tsc --noEmit",
-    "check": "npm run typecheck && npm test",
+    "typecheck": "npm run typecheck:worker && npm run typecheck:admin",
+    "typecheck:worker": "tsc --noEmit",
+    "typecheck:admin": "tsc --noEmit -p admin/tsconfig.json",
+    "check": "npm run build:admin && npm run typecheck && npm test",
     "ci:security": "npm audit --omit=dev --audit-level=moderate",
-    "ci:dry-run": "wrangler deploy --dry-run",
+    "ci:dry-run": "npm run build:admin && wrangler deploy --dry-run",
     "import-cache": "node scripts/import-cache.mjs",
     "enable-access": "node scripts/enable-access.mjs",
     "setup-access": "node scripts/setup-access.mjs",
     "check-access-token": "node scripts/setup-access.mjs --check-token",
     "setup-and-enable-access": "node scripts/setup-access.mjs --enable",
-    "deploy": "wrangler deploy",
-    "deploy:production": "wrangler deploy --config wrangler.production.toml",
+    "deploy": "npm run build:admin && wrangler deploy",
+    "deploy:production": "npm run build:admin && wrangler deploy --config wrangler.production.toml",
     "dev": "wrangler dev"
   },
   "dependencies": {
-    "jose": "^6.1.2"
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "jose": "^6.1.2",
+    "lucide-react": "^1.16.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "tailwind-merge": "^3.6.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260510.0",
+    "@tailwindcss/vite": "^4.3.0",
     "@types/node": "^25.8.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.2",
+    "tailwindcss": "^4.3.0",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
+    "vite": "^8.0.13",
     "wrangler": "^4.92.0"
   }
 }

@@ -161,6 +161,10 @@ test("admin page sets a session cookie so token can leave the URL", async () => 
   assert.match(cookie || "", /evergreen_admin=admin-token/);
   assert.match(cookie || "", /HttpOnly/);
   assert.match(cookie || "", /Secure/);
+  const html = await response.text();
+  assert.match(html, /id="root"/);
+  assert.match(html, /__EVERGREEN_ADMIN__/);
+  assert.match(html, /Asia\/Shanghai/);
 
   const second = await handleRequest(
     new Request("https://cache.test/admin/status", {
