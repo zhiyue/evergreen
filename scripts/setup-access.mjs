@@ -49,6 +49,11 @@ const existingApp = await findAccessApp(accountId, appName, appDomain);
 const app = existingApp || await cloudflare("POST", `/accounts/${accountId}/access/apps`, appPayload(policy.id));
 const resolvedTeamDomain = teamDomain || await detectTeamDomain(accountId);
 
+if (!app.aud) {
+  console.error("Access app is missing AUD. Open the Access app in Cloudflare and copy the Application Audience value manually.");
+  process.exit(1);
+}
+
 console.log(
   JSON.stringify(
     {
@@ -134,7 +139,16 @@ async function findAccessPolicy(accountId, name) {
 async function findAccessApp(accountId, name, domain) {
   try {
     const apps = await cloudflare("GET", `/accounts/${accountId}/access/apps?per_page=100`);
-    return Array.isArray(apps) ? apps.find((app) => app.name === name || app.domain === domain) : null;
+    const app = Array.isArray(apps) ? apps.find((candidate) => candidate.name === name || candidate.domain === domain) : null;
+    return app?.aud ? app : app ? await getAccessApp(accountId, app.id) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function getAccessApp(accountId, appId) {
+  try {
+    return await cloudflare("GET", `/accounts/${accountId}/access/apps/${appId}`);
   } catch {
     return null;
   }

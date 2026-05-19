@@ -254,6 +254,8 @@ npm run setup-and-enable-access
 
 这个命令可以重复执行：如果同名 Access policy 或同域名 Access app 已经存在，脚本会复用现有对象，避免重复创建。
 
+复用已有 Access app 时，脚本会确认能拿到 Application Audience (AUD)。如果 Cloudflare API 没返回 AUD，脚本会停下来，避免写入错误的 Worker secret。
+
 先检查将要创建的内容：
 
 ```sh
