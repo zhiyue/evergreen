@@ -241,6 +241,17 @@ npm run setup-access
 
 脚本会默认读取 `/tmp/evergreen-cloudflare-api-token`，并在当前 `wrangler` 登录态只有一个账号时自动使用这个账号 ID。如果你的 `wrangler` 登录态里有多个账号，再额外传 `CLOUDFLARE_ACCOUNT_ID=...`。
 
+如果 token 有 organization read 权限，可以直接创建 Access app、写入 Worker secrets、部署生产配置：
+
+```sh
+ACCESS_ALLOWED_EMAIL=you@example.com \
+WORKER_URL=https://evergreen.atoma.one \
+ADMIN_TOKEN=ADMIN_TOKEN \
+npm run setup-and-enable-access
+```
+
+`ADMIN_TOKEN` 只用于部署后验证旧 token 已被拒绝；不传也会启用 Access，但不会做这一步验证。
+
 先检查将要创建的内容：
 
 ```sh

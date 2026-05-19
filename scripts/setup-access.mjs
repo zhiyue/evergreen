@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 
 const dryRun = process.argv.includes("--dry-run");
+const enable = process.argv.includes("--enable");
 const apiToken = process.env.CLOUDFLARE_API_TOKEN || readSecret(process.env.CLOUDFLARE_API_TOKEN_FILE || "/tmp/evergreen-cloudflare-api-token");
 const accountId = process.env.CLOUDFLARE_ACCOUNT_ID || detectAccountId();
 const appName = process.env.ACCESS_APP_NAME || "Evergreen admin";
@@ -63,6 +64,11 @@ console.log(
 
 if (!resolvedTeamDomain) {
   console.error("Access app created. Set CF_ACCESS_TEAM_DOMAIN to your Cloudflare Access team domain before enabling Worker verification.");
+  if (enable) process.exit(1);
+}
+
+if (enable) {
+  enableWorkerAccess(app.aud, resolvedTeamDomain);
 }
 
 async function cloudflare(method, path, body) {
@@ -111,4 +117,16 @@ async function detectTeamDomain(accountId) {
 
 function normalizeHttps(value) {
   return /^https?:\/\//u.test(value) ? value : `https://${value}`;
+}
+
+function enableWorkerAccess(aud, teamDomain) {
+  const result = spawnSync(process.execPath, ["scripts/enable-access.mjs"], {
+    env: {
+      ...process.env,
+      CF_ACCESS_AUD: aud,
+      CF_ACCESS_TEAM_DOMAIN: teamDomain,
+    },
+    stdio: "inherit",
+  });
+  if (result.status !== 0) process.exit(result.status || 1);
 }
