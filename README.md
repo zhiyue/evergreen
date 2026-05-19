@@ -238,9 +238,10 @@ ACCESS_ALLOWED_EMAIL=you@example.com npm run setup-access -- --dry-run
 ```sh
 CF_ACCESS_AUD=... \
 CF_ACCESS_TEAM_DOMAIN=https://your-team.cloudflareaccess.com \
-WRANGLER_CONFIG=wrangler.toml \
 npm run enable-access
 ```
+
+`enable-access` 会优先使用本地的 `wrangler.production.toml`；如果没有这个文件，才会退回 `wrangler.toml`。也可以用 `WRANGLER_CONFIG=...` 手动指定。
 
 如果想让脚本部署后顺便验证 `admin_token` 已被拒绝：
 

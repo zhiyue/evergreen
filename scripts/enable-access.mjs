@@ -1,8 +1,9 @@
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 
 const aud = process.env.CF_ACCESS_AUD;
 const teamDomain = process.env.CF_ACCESS_TEAM_DOMAIN || process.env.ACCESS_TEAM_DOMAIN;
-const config = process.env.WRANGLER_CONFIG || "wrangler.toml";
+const config = process.env.WRANGLER_CONFIG || (existsSync("wrangler.production.toml") ? "wrangler.production.toml" : "wrangler.toml");
 const workerUrl = process.env.WORKER_URL;
 const adminToken = process.env.ADMIN_TOKEN;
 
