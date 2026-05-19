@@ -1,6 +1,9 @@
+import { spawnSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+
 const dryRun = process.argv.includes("--dry-run");
-const apiToken = process.env.CLOUDFLARE_API_TOKEN;
-const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+const apiToken = process.env.CLOUDFLARE_API_TOKEN || readSecret(process.env.CLOUDFLARE_API_TOKEN_FILE || "/tmp/evergreen-cloudflare-api-token");
+const accountId = process.env.CLOUDFLARE_ACCOUNT_ID || detectAccountId();
 const appName = process.env.ACCESS_APP_NAME || "Evergreen admin";
 const appDomain = process.env.ACCESS_APP_DOMAIN || "evergreen.atoma.one/admin*";
 const teamDomain = process.env.CF_ACCESS_TEAM_DOMAIN || process.env.ACCESS_TEAM_DOMAIN;
@@ -8,7 +11,7 @@ const allowedEmail = process.env.ACCESS_ALLOWED_EMAIL;
 const allowedEmailDomain = process.env.ACCESS_ALLOWED_EMAIL_DOMAIN;
 
 if (!dryRun && (!apiToken || !accountId)) {
-  console.error("Set CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID, or run with --dry-run.");
+  console.error("Put your Cloudflare API token in /tmp/evergreen-cloudflare-api-token, or set CLOUDFLARE_API_TOKEN. Set CLOUDFLARE_ACCOUNT_ID if wrangler has multiple accounts.");
   process.exit(1);
 }
 
@@ -76,4 +79,21 @@ async function cloudflare(method, path, body) {
     throw new Error(message);
   }
   return result.result;
+}
+
+function readSecret(path) {
+  if (!existsSync(path)) return "";
+  return readFileSync(path, "utf8").trim();
+}
+
+function detectAccountId() {
+  const result = spawnSync("npx", ["wrangler", "whoami", "--json"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  if (result.status !== 0) return "";
+
+  try {
+    const accounts = JSON.parse(result.stdout).accounts;
+    return Array.isArray(accounts) && accounts.length === 1 ? accounts[0].id : "";
+  } catch {
+    return "";
+  }
 }

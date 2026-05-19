@@ -218,14 +218,23 @@ CF_ACCESS_CLIENT_SECRET=xxxxx
 
 如果你有带 Zero Trust Access 写权限的 Cloudflare API token，也可以用脚本创建 Access policy/application：
 
+把 token 放到本机临时文件：
+
 ```sh
-CLOUDFLARE_API_TOKEN=... \
-CLOUDFLARE_ACCOUNT_ID=... \
+printf '%s' '你的_TOKEN' > /tmp/evergreen-cloudflare-api-token
+chmod 600 /tmp/evergreen-cloudflare-api-token
+```
+
+然后运行：
+
+```sh
 ACCESS_ALLOWED_EMAIL=you@example.com \
 ACCESS_APP_DOMAIN=evergreen.atoma.one/admin* \
 CF_ACCESS_TEAM_DOMAIN=https://your-team.cloudflareaccess.com \
 npm run setup-access
 ```
+
+脚本会默认读取 `/tmp/evergreen-cloudflare-api-token`，并在当前 `wrangler` 登录态只有一个账号时自动使用这个账号 ID。如果你的 `wrangler` 登录态里有多个账号，再额外传 `CLOUDFLARE_ACCOUNT_ID=...`。
 
 先检查将要创建的内容：
 
