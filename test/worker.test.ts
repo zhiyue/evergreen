@@ -369,7 +369,7 @@ test("uses Surge-like headers when fetching upstream subscriptions", async () =>
     await refreshSource(env, "headers-airport");
     const headers = capturedHeaders[0];
     assert.ok(headers);
-    assert.equal(headers.get("user-agent"), "Surge/5.0");
+    assert.equal(headers.get("user-agent"), "Surge iOS/6.0.0");
     assert.equal(headers.get("accept"), "*/*");
     assert.equal(headers.get("accept-language"), "zh-Hans-CN;q=1, en-CN;q=0.9");
     assert.equal(headers.get("cache-control"), "no-cache");
