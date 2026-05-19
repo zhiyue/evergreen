@@ -4,6 +4,7 @@ node_modules/
 .dev.vars
 .env
 .env.*
+wrangler.production.toml
 .DS_Store
 coverage/
 dist/

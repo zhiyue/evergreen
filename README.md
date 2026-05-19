@@ -163,6 +163,12 @@ custom_domain = true
 npm run deploy
 ```
 
+如果生产环境使用单独的本地配置文件，可以把真实 KV namespace 和自定义域名放进 `wrangler.production.toml`。这个文件已加入 `.gitignore`，不会提交到 GitHub：
+
+```sh
+npm run deploy:production
+```
+
 检查服务：
 
 ```sh

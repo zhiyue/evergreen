@@ -12,6 +12,7 @@
     "enable-access": "node scripts/enable-access.mjs",
     "setup-access": "node scripts/setup-access.mjs",
     "deploy": "wrangler deploy",
+    "deploy:production": "wrangler deploy --config wrangler.production.toml",
     "dev": "wrangler dev"
   },
   "dependencies": {
