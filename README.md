@@ -236,6 +236,8 @@ chmod 600 /tmp/evergreen-cloudflare-api-token
 npm run check-access-token
 ```
 
+这个预检同时支持用户级 API token 和账号级 API token。
+
 然后运行：
 
 ```sh

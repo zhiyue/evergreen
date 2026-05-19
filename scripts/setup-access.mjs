@@ -173,7 +173,7 @@ function enableWorkerAccess(aud, teamDomain) {
 }
 
 async function checkAccessToken(accountId) {
-  await cloudflare("GET", "/user/tokens/verify");
+  const token = await verifyApiToken(accountId);
   const organization = await cloudflare("GET", `/accounts/${accountId}/access/organizations`);
   await cloudflare("GET", `/accounts/${accountId}/access/policies?per_page=1`);
   await cloudflare("GET", `/accounts/${accountId}/access/apps?per_page=1`);
@@ -183,6 +183,7 @@ async function checkAccessToken(accountId) {
       {
         ok: true,
         accountId,
+        token,
         teamDomain: organization?.auth_domain ? normalizeHttps(organization.auth_domain) : null,
         checked: ["token", "zeroTrustOrganization", "accessPolicies", "accessApps"],
       },
@@ -190,4 +191,14 @@ async function checkAccessToken(accountId) {
       2,
     ),
   );
+}
+
+async function verifyApiToken(accountId) {
+  try {
+    const token = await cloudflare("GET", "/user/tokens/verify");
+    return { kind: "user", id: token.id, status: token.status };
+  } catch (error) {
+    const token = await cloudflare("GET", `/accounts/${accountId}/tokens/verify`);
+    return { kind: "account", id: token.id, status: token.status };
+  }
 }
