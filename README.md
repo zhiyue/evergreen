@@ -272,6 +272,8 @@ npm run enable-access
 
 `enable-access` 会优先使用本地的 `wrangler.production.toml`；如果没有这个文件，才会退回 `wrangler.toml`。也可以用 `WRANGLER_CONFIG=...` 手动指定。
 
+验证时，`enable-access` 会把 `admin_token` 访问返回 401/403 或被 Cloudflare Access 跳转登录页都视为通过；只要还返回 200，就会失败。
+
 如果想让脚本部署后顺便验证 `admin_token` 已被拒绝：
 
 ```sh

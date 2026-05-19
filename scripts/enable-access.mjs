@@ -17,8 +17,10 @@ putSecret("CF_ACCESS_TEAM_DOMAIN", teamDomain);
 run("npx", ["wrangler", "deploy", "-c", config]);
 
 if (workerUrl && adminToken) {
-  const response = await fetch(new URL(`/admin/status?admin_token=${encodeURIComponent(adminToken)}`, workerUrl));
-  if (response.status !== 401 && response.status !== 403) {
+  const response = await fetch(new URL(`/admin/status?admin_token=${encodeURIComponent(adminToken)}`, workerUrl), {
+    redirect: "manual",
+  });
+  if (!isRejectedOrProtected(response.status)) {
     console.error(`Expected admin_token to be rejected after Access is enabled, got HTTP ${response.status}.`);
     process.exit(1);
   }
@@ -39,4 +41,8 @@ function putSecret(name, value) {
 function run(command, args) {
   const result = spawnSync(command, args, { stdio: "inherit" });
   if (result.status !== 0) process.exit(result.status || 1);
+}
+
+function isRejectedOrProtected(status) {
+  return status === 302 || status === 303 || status === 401 || status === 403;
 }
