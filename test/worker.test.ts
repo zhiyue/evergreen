@@ -258,6 +258,79 @@ test("reports proxy count from cached subscription content", async () => {
   }
 });
 
+test("stores successful and failed refresh state separately", async () => {
+  const env = makeEnv();
+  await handleRequest(
+    adminRequest("/admin/sources", {
+      sources: [{ name: "state-airport", url: "https://upstream.test/state-airport" }],
+    }),
+    env,
+  );
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response("state-proxy = direct\n", { status: 200 });
+
+  try {
+    const success = await refreshSource(env, "state-airport");
+    assert.equal(success.ok, true);
+
+    globalThis.fetch = async () => new Response("blocked", { status: 403 });
+    const failure = await refreshSource(env, "state-airport");
+    assert.equal(failure.ok, false);
+
+    const status = await handleRequest(adminGet("/admin/status"), env);
+    const body = (await status.json()) as {
+      sources: Array<{
+        name: string;
+        lastRefreshOk: boolean;
+        lastSuccessAt: string | null;
+        lastSuccessProxyCount: number | null;
+        lastFailureAt: string | null;
+        lastFailureStatus: number | null;
+        lastFailureError: string | null;
+      }>;
+    };
+    const source = body.sources.find((item) => item.name === "state-airport");
+    assert.equal(source?.lastRefreshOk, false);
+    assert.ok(source?.lastSuccessAt);
+    assert.equal(source?.lastSuccessProxyCount, 1);
+    assert.ok(source?.lastFailureAt);
+    assert.equal(source?.lastFailureStatus, 403);
+    assert.equal(source?.lastFailureError, "Upstream returned 403");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("imports subscription content into cache through admin API", async () => {
+  const env = makeEnv();
+  await handleRequest(
+    adminRequest("/admin/sources", {
+      sources: [{ name: "import-airport", url: "https://upstream.test/import-airport" }],
+    }),
+    env,
+  );
+
+  const response = await handleRequest(
+    adminRequest("/admin/cache/import-airport", {
+      content: "imported-proxy = ss, imported.example, 443, encrypt-method=aes-128-gcm, password=p\n",
+      contentType: "text/plain",
+      status: 200,
+    }),
+    env,
+  );
+
+  assert.equal(response.status, 200);
+  const result = (await response.json()) as { result: { ok: boolean; cacheStatus: string; proxyCount: number } };
+  assert.equal(result.result.ok, true);
+  assert.equal(result.result.cacheStatus, "IMPORTED");
+  assert.equal(result.result.proxyCount, 1);
+  assert.equal(
+    await env.SUB_CACHE.get("cache:import-airport"),
+    "imported-proxy = ss, imported.example, 443, encrypt-method=aes-128-gcm, password=p\n",
+  );
+});
+
 test("uses Surge-like headers when fetching upstream subscriptions", async () => {
   const env = makeEnv();
   await handleRequest(
@@ -333,6 +406,8 @@ test("deleting a source clears cached content and refresh state", async () => {
   const kv = env.SUB_CACHE as unknown as MemoryKV;
   await kv.put("cache:delete-airport", "delete-proxy = direct\n", { metadata: { proxyCount: 1 } });
   await kv.put("refresh:delete-airport", JSON.stringify({ name: "delete-airport", ok: true }));
+  await kv.put("refresh-success:delete-airport", JSON.stringify({ name: "delete-airport", ok: true }));
+  await kv.put("refresh-failure:delete-airport", JSON.stringify({ name: "delete-airport", ok: false }));
 
   const response = await handleRequest(
     new Request("https://cache.test/admin/source/delete-airport", {
@@ -346,6 +421,8 @@ test("deleting a source clears cached content and refresh state", async () => {
   assert.equal(await env.SUB_CACHE.get("source:delete-airport"), null);
   assert.equal(await env.SUB_CACHE.get("cache:delete-airport"), null);
   assert.equal(await env.SUB_CACHE.get("refresh:delete-airport"), null);
+  assert.equal(await env.SUB_CACHE.get("refresh-success:delete-airport"), null);
+  assert.equal(await env.SUB_CACHE.get("refresh-failure:delete-airport"), null);
 });
 
 test("replacing sources removes old dynamic source artifacts", async () => {
@@ -359,6 +436,8 @@ test("replacing sources removes old dynamic source artifacts", async () => {
   const kv = env.SUB_CACHE as unknown as MemoryKV;
   await kv.put("cache:old-airport", "old-proxy = direct\n", { metadata: { proxyCount: 1 } });
   await kv.put("refresh:old-airport", JSON.stringify({ name: "old-airport", ok: true }));
+  await kv.put("refresh-success:old-airport", JSON.stringify({ name: "old-airport", ok: true }));
+  await kv.put("refresh-failure:old-airport", JSON.stringify({ name: "old-airport", ok: false }));
 
   await handleRequest(
     adminRequest("/admin/sources", {
@@ -370,6 +449,8 @@ test("replacing sources removes old dynamic source artifacts", async () => {
   assert.equal(await env.SUB_CACHE.get("source:old-airport"), null);
   assert.equal(await env.SUB_CACHE.get("cache:old-airport"), null);
   assert.equal(await env.SUB_CACHE.get("refresh:old-airport"), null);
+  assert.equal(await env.SUB_CACHE.get("refresh-success:old-airport"), null);
+  assert.equal(await env.SUB_CACHE.get("refresh-failure:old-airport"), null);
   assert.ok(await env.SUB_CACHE.get("source:new-airport"));
 });
 

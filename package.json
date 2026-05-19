@@ -8,6 +8,7 @@
     "check": "npm run typecheck && npm test",
     "ci:security": "npm audit --omit=dev --audit-level=moderate",
     "ci:dry-run": "wrangler deploy --dry-run",
+    "import-cache": "node scripts/import-cache.mjs",
     "deploy": "wrangler deploy",
     "dev": "wrangler dev"
   },

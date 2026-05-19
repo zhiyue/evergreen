@@ -32,6 +32,12 @@ type RefreshResult = {
   error?: string;
 };
 
+type PreparedSubscription = {
+  body: string;
+  bytes: number;
+  proxyCount: number;
+};
+
 type Env = {
   SUB_CACHE: KVNamespace;
   ADMIN_TOKEN?: string;
@@ -48,6 +54,8 @@ type RemoteJWKSet = ReturnType<typeof createRemoteJWKSet>;
 
 const SOURCE_INDEX_KEY = "sources:index";
 const REFRESH_PREFIX = "refresh:";
+const REFRESH_SUCCESS_PREFIX = "refresh-success:";
+const REFRESH_FAILURE_PREFIX = "refresh-failure:";
 const DEFAULT_CACHE_TTL_SECONDS = 6 * 60 * 60;
 const DEFAULT_STALE_TTL_SECONDS = 14 * 24 * 60 * 60;
 const MAX_SUBSCRIPTION_BYTES = 10 * 1024 * 1024;
@@ -101,7 +109,7 @@ export async function handleRequest(
   if (pathname === "/admin" && request.method === "GET") {
     const denied = await requireAdmin(request, env);
     if (denied) return denied;
-    return adminPage(request, await buildStatus(env));
+    return adminPage(request, await buildStatus(env), env);
   }
 
   if (pathname === "/admin/status" && request.method === "GET") {
@@ -161,6 +169,21 @@ export async function handleRequest(
     const name = decodeURIComponent(refreshMatch[1]);
     const result = await refreshSource(env, name);
     return json({ result });
+  }
+
+  const cacheImportMatch = pathname.match(/^\/admin\/cache\/(.+)$/);
+  if (cacheImportMatch && ["PUT", "POST"].includes(request.method)) {
+    const denied = await requireAdmin(request, env);
+    if (denied) return denied;
+    const name = decodeURIComponent(cacheImportMatch[1]);
+    const body = await readJson(request);
+    const content = typeof body.content === "string" ? body.content : typeof body.body === "string" ? body.body : "";
+    if (!content) return json({ error: "Expected content" }, 400);
+    const result = await importCachedSubscription(env, name, content, {
+      contentType: typeof body.contentType === "string" ? body.contentType : null,
+      status: typeof body.status === "number" ? body.status : 200,
+    });
+    return json({ result }, result.ok ? 200 : 400);
   }
 
   const subMatch = pathname.match(/^\/sub\/(.+)$/);
@@ -280,38 +303,16 @@ export async function refreshSource(env: Env, name: string): Promise<RefreshResu
       });
     }
 
-    const upstreamBody = await response.text();
-    const body = normalizeSubscriptionBody(upstreamBody);
-    if (!body.trim()) {
+    const prepared = prepareSubscriptionBody(await response.text());
+    if ("error" in prepared) {
       return rememberRefreshResult(env, {
         name,
         ok: false,
         attemptedAt: new Date().toISOString(),
         status: response.status,
-        error: "Upstream returned no Surge-compatible proxy nodes",
-      });
-    }
-
-    const bytes = new TextEncoder().encode(body).byteLength;
-    if (bytes > MAX_SUBSCRIPTION_BYTES) {
-      return rememberRefreshResult(env, {
-        name,
-        ok: false,
-        attemptedAt: new Date().toISOString(),
-        status: response.status,
-        error: "Subscription is too large for this cache",
-      });
-    }
-    const proxyCount = countSubscriptionItems(body);
-    if (proxyCount < 1) {
-      return rememberRefreshResult(env, {
-        name,
-        ok: false,
-        attemptedAt: new Date().toISOString(),
-        status: response.status,
-        bytes,
-        proxyCount,
-        error: "Upstream returned no proxy nodes",
+        bytes: prepared.bytes,
+        proxyCount: prepared.proxyCount,
+        error: prepared.error,
       });
     }
 
@@ -320,12 +321,12 @@ export async function refreshSource(env: Env, name: string): Promise<RefreshResu
       updatedAt: new Date().toISOString(),
       contentType: subscriptionContentType(response.headers.get("content-type")),
       status: response.status,
-      bytes,
+      bytes: prepared.bytes,
       ttlSeconds: ttlSeconds(env, source),
-      proxyCount,
+      proxyCount: prepared.proxyCount,
     };
 
-    await env.SUB_CACHE.put(cacheKey(name), body, { metadata });
+    await env.SUB_CACHE.put(cacheKey(name), prepared.body, { metadata });
     return rememberRefreshResult(env, {
       name,
       ok: true,
@@ -345,6 +346,52 @@ export async function refreshSource(env: Env, name: string): Promise<RefreshResu
   }
 }
 
+async function importCachedSubscription(
+  env: Env,
+  name: string,
+  content: string,
+  options: { contentType: string | null; status: number },
+): Promise<RefreshResult> {
+  validateName(name);
+  const source = await getSource(env, name);
+  const attemptedAt = new Date().toISOString();
+  if (!source) return rememberRefreshResult(env, { name, ok: false, attemptedAt, error: `Unknown source: ${name}` });
+
+  const prepared = prepareSubscriptionBody(content);
+  if ("error" in prepared) {
+    return rememberRefreshResult(env, {
+      name,
+      ok: false,
+      attemptedAt,
+      status: options.status,
+      bytes: prepared.bytes,
+      proxyCount: prepared.proxyCount,
+      error: prepared.error,
+    });
+  }
+
+  const metadata: CacheMetadata = {
+    sourceName: name,
+    updatedAt: attemptedAt,
+    contentType: subscriptionContentType(options.contentType),
+    status: options.status,
+    bytes: prepared.bytes,
+    ttlSeconds: ttlSeconds(env, source),
+    proxyCount: prepared.proxyCount,
+  };
+
+  await env.SUB_CACHE.put(cacheKey(name), prepared.body, { metadata });
+  return rememberRefreshResult(env, {
+    name,
+    ok: true,
+    attemptedAt,
+    cacheStatus: "IMPORTED",
+    updatedAt: attemptedAt,
+    bytes: prepared.bytes,
+    proxyCount: prepared.proxyCount,
+  });
+}
+
 async function buildStatus(env: Env): Promise<Record<string, unknown>[]> {
   const sources = await listSources(env);
   const defaultNames = new Set(getDefaultSources(env).map((source) => source.name));
@@ -353,6 +400,8 @@ async function buildStatus(env: Env): Promise<Record<string, unknown>[]> {
     sources.map(async (source) => {
       const cached = await getCachedSubscription(env, source.name);
       const refreshResult = await getRefreshResult(env, source.name);
+      const lastSuccess = await getRefreshSuccess(env, source.name);
+      const lastFailure = await getRefreshFailure(env, source.name);
       const metadata = cached.metadata;
       const hasStoredConfig = Boolean(await env.SUB_CACHE.get(sourceKey(source.name)));
       const fresh = cached.value ? isFresh(metadata, ttlSeconds(env, source), Date.now()) : false;
@@ -377,6 +426,13 @@ async function buildStatus(env: Env): Promise<Record<string, unknown>[]> {
         lastRefreshOk: refreshResult?.ok ?? null,
         lastRefreshError: refreshResult?.error || null,
         lastRefreshAt: refreshResult?.attemptedAt || null,
+        lastSuccessAt: lastSuccess?.attemptedAt || null,
+        lastSuccessCacheStatus: lastSuccess?.cacheStatus || null,
+        lastSuccessProxyCount: lastSuccess?.proxyCount ?? null,
+        lastSuccessBytes: lastSuccess?.bytes ?? null,
+        lastFailureAt: lastFailure?.attemptedAt || null,
+        lastFailureStatus: lastFailure?.status ?? null,
+        lastFailureError: lastFailure?.error || null,
       };
     }),
   );
@@ -427,6 +483,8 @@ function deleteSourceArtifacts(env: Env, name: string): Promise<void>[] {
     env.SUB_CACHE.delete(sourceKey(name)),
     env.SUB_CACHE.delete(cacheKey(name)),
     env.SUB_CACHE.delete(refreshKey(name)),
+    env.SUB_CACHE.delete(refreshSuccessKey(name)),
+    env.SUB_CACHE.delete(refreshFailureKey(name)),
   ];
 }
 
@@ -462,12 +520,24 @@ async function getCachedSubscription(env: Env, name: string): Promise<{ value: s
 }
 
 async function rememberRefreshResult(env: Env, result: RefreshResult): Promise<RefreshResult> {
-  await env.SUB_CACHE.put(refreshKey(result.name), JSON.stringify(result));
+  const writes = [env.SUB_CACHE.put(refreshKey(result.name), JSON.stringify(result))];
+  writes.push(env.SUB_CACHE.put(result.ok ? refreshSuccessKey(result.name) : refreshFailureKey(result.name), JSON.stringify(result)));
+  await Promise.all(writes);
   return result;
 }
 
 async function getRefreshResult(env: Env, name: string): Promise<RefreshResult | null> {
   const raw = await env.SUB_CACHE.get(refreshKey(name));
+  return raw ? (JSON.parse(raw) as RefreshResult) : null;
+}
+
+async function getRefreshSuccess(env: Env, name: string): Promise<RefreshResult | null> {
+  const raw = await env.SUB_CACHE.get(refreshSuccessKey(name));
+  return raw ? (JSON.parse(raw) as RefreshResult) : null;
+}
+
+async function getRefreshFailure(env: Env, name: string): Promise<RefreshResult | null> {
+  const raw = await env.SUB_CACHE.get(refreshFailureKey(name));
   return raw ? (JSON.parse(raw) as RefreshResult) : null;
 }
 
@@ -564,6 +634,19 @@ function normalizeSubscriptionBody(body: string): string {
     .filter((line): line is string => Boolean(line));
 
   return converted.length > 0 ? `${converted.join("\n")}\n` : "";
+}
+
+function prepareSubscriptionBody(rawBody: string): PreparedSubscription | { error: string; bytes?: number; proxyCount?: number } {
+  const body = normalizeSubscriptionBody(rawBody);
+  if (!body.trim()) return { error: "Subscription contains no Surge-compatible proxy nodes" };
+
+  const bytes = new TextEncoder().encode(body).byteLength;
+  if (bytes > MAX_SUBSCRIPTION_BYTES) return { error: "Subscription is too large for this cache", bytes };
+
+  const proxyCount = countSubscriptionItems(body);
+  if (proxyCount < 1) return { error: "Subscription contains no proxy nodes", bytes, proxyCount };
+
+  return { body, bytes, proxyCount };
 }
 
 function decodeBase64Subscription(body: string): string | null {
@@ -707,10 +790,15 @@ function safeHeaderValue(value: string): string {
   return value.replace(/[^\x20-\x7e]/gu, "?").replace(/[\r\n]/gu, " ").slice(0, 200);
 }
 
-function adminPage(request: Request, sources: Record<string, unknown>[]): Response {
+function adminPage(request: Request, sources: Record<string, unknown>[], env: Env): Response {
   const url = new URL(request.url);
   const token = url.searchParams.get("admin_token") || "";
-  const authMode = url.searchParams.has("admin_token") ? "token" : "access";
+  const authMode = env.CF_ACCESS_AUD && env.CF_ACCESS_TEAM_DOMAIN
+    ? "Cloudflare Access"
+    : url.searchParams.has("admin_token")
+      ? "admin token in URL"
+      : "admin token";
+  const publicToken = env.PUBLIC_TOKEN || "";
   const sourceCount = sources.length;
   const enabledCount = sources.filter((source) => source.enabled).length;
   const cachedCount = sources.filter((source) => source.cached).length;
@@ -731,6 +819,16 @@ function adminPage(request: Request, sources: Record<string, unknown>[]): Respon
           const cacheLabel = cacheState === "invalid" ? "无效" : cacheState === "empty" ? "未缓存" : cacheState;
           const rowClass = cacheState === "invalid" || source.lastRefreshOk === false ? " class=\"needs-attention\"" : "";
           const proxyClass = source.proxyCountKnown ? "proxy-count" : "proxy-count pending";
+          const subscriptionUrl = publicToken
+            ? new URL(`/sub/${encodeURIComponent(sourceName)}?token=${encodeURIComponent(publicToken)}`, url.origin).toString()
+            : "";
+          const successLabel = source.lastSuccessAt
+            ? `${escapeHtml(source.lastSuccessAt)}${source.lastSuccessCacheStatus ? ` · ${escapeHtml(source.lastSuccessCacheStatus)}` : ""}`
+            : "-";
+          const failureStatus = source.lastFailureStatus !== null && source.lastFailureStatus !== undefined ? `HTTP ${escapeHtml(source.lastFailureStatus)}` : "";
+          const failureLabel = source.lastFailureAt ? escapeHtml(source.lastFailureAt) : "-";
+          const failureClass = source.lastFailureAt ? "bad" : "neutral";
+          const failureText = source.lastFailureAt ? "失败" : "未失败";
 
           return `<tr${rowClass}>
             <td class="source-cell">
@@ -747,22 +845,29 @@ function adminPage(request: Request, sources: Record<string, unknown>[]): Respon
             </td>
             <td class="${proxyClass}">${escapeHtml(proxyCountLabel)}</td>
             <td>
-              <span class="refresh ${refreshClass}">${refreshStatus}</span>
-              <div class="subtext">${escapeHtml(source.lastRefreshAt || source.updatedAt || "-")}</div>
-              ${source.lastRefreshError ? `<div class="error-text">${escapeHtml(source.lastRefreshError)}</div>` : ""}
+              <span class="refresh ok">${source.lastSuccessAt ? "成功" : "未成功"}</span>
+              <div class="subtext">${successLabel}</div>
+              ${source.lastSuccessProxyCount !== null && source.lastSuccessProxyCount !== undefined ? `<div class="subtext">${escapeHtml(source.lastSuccessProxyCount)} proxies · ${formatBytes(Number(source.lastSuccessBytes || 0))}</div>` : ""}
+            </td>
+            <td>
+              <span class="refresh ${failureClass}">${failureText}</span>
+              <div class="subtext">${failureLabel}</div>
+              ${failureStatus ? `<div class="subtext">${failureStatus}</div>` : ""}
+              ${source.lastFailureError ? `<div class="error-text">${escapeHtml(source.lastFailureError)}</div>` : ""}
             </td>
             <td class="subtext">${escapeHtml(source.updatedAt || "-")}</td>
             <td class="actions">
               <button data-refresh="${escapeHtml(sourceName)}">Refresh</button>
+              ${subscriptionUrl ? `<button data-copy-sub="${escapeHtml(subscriptionUrl)}">Copy URL</button>` : ""}
               <button data-delete="${escapeHtml(sourceName)}">${deleteLabel}</button>
             </td>
           </tr>
           <tr class="url-row${rowClass ? " needs-attention" : ""}">
-            <td colspan="6"><div class="source-url">${escapeHtml(source.url)}</div></td>
+            <td colspan="7"><div class="source-url">${escapeHtml(source.url)}</div></td>
           </tr>`;
         })
         .join("")
-    : `<tr><td colspan="6" class="empty">No sources configured.</td></tr>`;
+    : `<tr><td colspan="7" class="empty">No sources configured.</td></tr>`;
 
   return new Response(
     `<!doctype html>
@@ -798,7 +903,7 @@ function adminPage(request: Request, sources: Record<string, unknown>[]): Respon
     button.primary:hover { background: #1849a9; }
     table { width: 100%; border-collapse: collapse; table-layout: fixed; }
     .table-wrap { overflow-x: auto; }
-    .table-wrap table { min-width: 1320px; }
+    .table-wrap table { min-width: 1500px; }
     th, td { padding: 12px 14px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
     th { color: #344054; font-size: 12px; background: #fbfcfe; white-space: nowrap; }
     tr.needs-attention { background: #fffafa; }
@@ -879,7 +984,8 @@ function adminPage(request: Request, sources: Record<string, unknown>[]): Respon
             <th>Source</th>
             <th>Cache</th>
             <th class="number">代理数量</th>
-            <th>Last refresh</th>
+            <th>Last success</th>
+            <th>Last failure</th>
             <th>Cached at</th>
             <th>Actions</th>
           </tr>
@@ -912,6 +1018,12 @@ function adminPage(request: Request, sources: Record<string, unknown>[]): Respon
         const response = await fetch(adminPath("/admin/source/" + encodeURIComponent(button.dataset.delete)), { method: "DELETE" });
         result.textContent = await response.text();
         if (response.ok) location.reload();
+      };
+    });
+    document.querySelectorAll("button[data-copy-sub]").forEach((button) => {
+      button.onclick = async () => {
+        await navigator.clipboard.writeText(button.dataset.copySub);
+        result.textContent = "Copied subscription URL.";
       };
     });
     document.getElementById("source-form").onsubmit = async (event) => {
@@ -975,6 +1087,14 @@ function cacheKey(name: string): string {
 
 function refreshKey(name: string): string {
   return `${REFRESH_PREFIX}${name}`;
+}
+
+function refreshSuccessKey(name: string): string {
+  return `${REFRESH_SUCCESS_PREFIX}${name}`;
+}
+
+function refreshFailureKey(name: string): string {
+  return `${REFRESH_FAILURE_PREFIX}${name}`;
 }
 
 function normalizePath(pathname: string): string {
