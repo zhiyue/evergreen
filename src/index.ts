@@ -869,6 +869,11 @@ function adminPage(request: Request, sources: Record<string, unknown>[], env: En
         .join("")
     : `<tr><td colspan="7" class="empty">No sources configured.</td></tr>`;
 
+  const headers = new Headers({ "content-type": "text/html; charset=utf-8" });
+  if (token && !(env.CF_ACCESS_AUD && env.CF_ACCESS_TEAM_DOMAIN)) {
+    headers.append("set-cookie", adminCookie(token, url.protocol === "https:"));
+  }
+
   return new Response(
     `<!doctype html>
 <html lang="en">
@@ -999,12 +1004,17 @@ function adminPage(request: Request, sources: Record<string, unknown>[], env: En
   <script>
     const token = ${JSON.stringify(token)};
     const result = document.getElementById("result");
-    function adminPath(path) {
-      return token ? path + "?admin_token=" + encodeURIComponent(token) : path;
+    if (token && location.search.includes("admin_token=")) {
+      history.replaceState(null, "", location.pathname);
+    }
+    function adminFetch(path, options = {}) {
+      const headers = new Headers(options.headers || {});
+      if (token) headers.set("x-admin-token", token);
+      return fetch(path, { ...options, headers });
     }
     async function refresh(path) {
       result.textContent = "Refreshing...";
-      const response = await fetch(adminPath(path), { method: "POST" });
+      const response = await adminFetch(path, { method: "POST" });
       result.textContent = await response.text();
       if (response.ok) location.reload();
     }
@@ -1015,7 +1025,7 @@ function adminPage(request: Request, sources: Record<string, unknown>[], env: En
     document.querySelectorAll("button[data-delete]").forEach((button) => {
       button.onclick = async () => {
         result.textContent = "Updating...";
-        const response = await fetch(adminPath("/admin/source/" + encodeURIComponent(button.dataset.delete)), { method: "DELETE" });
+        const response = await adminFetch("/admin/source/" + encodeURIComponent(button.dataset.delete), { method: "DELETE" });
         result.textContent = await response.text();
         if (response.ok) location.reload();
       };
@@ -1037,7 +1047,7 @@ function adminPage(request: Request, sources: Record<string, unknown>[], env: En
       const ttlSeconds = Number(form.get("ttlSeconds"));
       if (ttlSeconds) payload.ttlSeconds = ttlSeconds;
       const name = String(form.get("name"));
-      const response = await fetch(adminPath("/admin/source/" + encodeURIComponent(name)), {
+      const response = await adminFetch("/admin/source/" + encodeURIComponent(name), {
         method: "PUT",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(payload)
@@ -1048,7 +1058,7 @@ function adminPage(request: Request, sources: Record<string, unknown>[], env: En
   </script>
 </body>
 </html>`,
-    { headers: { "content-type": "text/html; charset=utf-8" } },
+    { headers },
   );
 }
 
@@ -1125,7 +1135,8 @@ async function requireAdmin(request: Request, env: Env): Promise<Response | null
   }
 
   if (!env.ADMIN_TOKEN) return json({ error: "ADMIN_TOKEN is not configured" }, 503);
-  return tokenFromRequest(request, "admin_token", "x-admin-token") === env.ADMIN_TOKEN
+  const token = tokenFromRequest(request, "admin_token", "x-admin-token") || cookieFromRequest(request, "evergreen_admin");
+  return token === env.ADMIN_TOKEN
     ? null
     : json({ error: "Unauthorized" }, 401);
 }
@@ -1143,6 +1154,27 @@ function tokenFromRequest(request: Request, queryName: string, headerName: strin
   const headerToken = request.headers.get(headerName);
   if (headerToken) return headerToken.trim();
   return new URL(request.url).searchParams.get(queryName) || "";
+}
+
+function cookieFromRequest(request: Request, name: string): string {
+  const cookies = request.headers.get("cookie") || "";
+  for (const cookie of cookies.split(";")) {
+    const [rawKey, ...rawValue] = cookie.trim().split("=");
+    if (rawKey === name) {
+      try {
+        return decodeURIComponent(rawValue.join("="));
+      } catch {
+        return rawValue.join("=");
+      }
+    }
+  }
+  return "";
+}
+
+function adminCookie(token: string, secure: boolean): string {
+  const flags = ["Path=/", "HttpOnly", "SameSite=Strict", "Max-Age=43200"];
+  if (secure) flags.push("Secure");
+  return `evergreen_admin=${encodeURIComponent(token)}; ${flags.join("; ")}`;
 }
 
 async function verifyAccessJwt(token: string, env: Env): Promise<void> {

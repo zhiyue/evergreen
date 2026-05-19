@@ -153,6 +153,24 @@ test("rejects subscription requests without public token", async () => {
   assert.equal(response.status, 401);
 });
 
+test("admin page sets a session cookie so token can leave the URL", async () => {
+  const env = makeEnv();
+  const response = await handleRequest(new Request("https://cache.test/admin?admin_token=admin-token"), env);
+  assert.equal(response.status, 200);
+  const cookie = response.headers.get("set-cookie");
+  assert.match(cookie || "", /evergreen_admin=admin-token/);
+  assert.match(cookie || "", /HttpOnly/);
+  assert.match(cookie || "", /Secure/);
+
+  const second = await handleRequest(
+    new Request("https://cache.test/admin/status", {
+      headers: { cookie: "evergreen_admin=admin-token" },
+    }),
+    env,
+  );
+  assert.equal(second.status, 200);
+});
+
 test("subscription HEAD requests do not fetch upstream", async () => {
   const env = makeEnv();
   await handleRequest(
